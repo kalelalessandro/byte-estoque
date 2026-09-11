@@ -1,0 +1,55 @@
+{
+  "name": "byte-force",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "db:migrate": "prisma migrate dev",
+    "db:rls": "prisma db execute --file ./sql/rls.sql --schema ./prisma/schema.prisma",
+    "db:seed": "tsx prisma/seed.ts",
+    "bootstrap": "npm run db:migrate && npm run db:rls && npm run db:seed",
+    "verify:isolation": "tsx scripts/verify-isolation.ts",
+    "test": "vitest run",
+    "verify:concurrency": "tsx scripts/verify-concurrency.ts",
+    "create:platform-admin": "tsx scripts/create-platform-admin.ts",
+    "db:backup": "sh scripts/backup.sh",
+    "db:restore": "sh scripts/restore.sh",
+    "test:e2e": "playwright test"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.2.0",
+    "bcryptjs": "^2.4.3",
+    "next": "^15.1.0",
+    "next-auth": "^5.0.0-beta.25",
+    "nodemailer": "^8.0.11",
+    "pdfkit": "^0.20.2",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "xlsx": "^0.18.5",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@types/bcryptjs": "^2.4.6",
+    "@types/node": "^22.10.0",
+    "@types/nodemailer": "^8.0.1",
+    "@types/pdfkit": "^0.17.6",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "autoprefixer": "^10.4.20",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "^15.5.25",
+    "postcss": "^8.4.49",
+    "prisma": "^6.2.0",
+    "tailwindcss": "^3.4.17",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

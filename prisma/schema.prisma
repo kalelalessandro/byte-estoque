@@ -1,0 +1,676 @@
+// Byte Force — schema multi-tenant.
+// Identidade (tenants, users) fica FORA do RLS. Negocio carrega tenant_id e e
+// protegido por RLS (ver sql/rls.sql).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  PLATFORM_ADMIN
+  OWNER
+  ADMIN
+  MANAGER
+  SELLER
+  STOCKIST
+  FINANCE
+  MEMBER
+}
+
+enum PlanTier {
+  STARTER
+  PRO
+  BUSINESS
+  ENTERPRISE
+}
+
+enum ProductStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum StockMovementType {
+  ENTRY
+  EXIT
+  ADJUSTMENT
+}
+
+enum PurchaseStatus {
+  COMPLETED
+  CANCELED
+}
+
+enum SaleStatus {
+  COMPLETED
+  CANCELED
+}
+
+enum PaymentMethod {
+  CASH
+  PIX
+  CARD
+  CREDIT // a prazo -> gera conta a receber
+}
+
+enum FinanceType {
+  PAYABLE
+  RECEIVABLE
+}
+
+enum FinanceStatus {
+  OPEN
+  PAID
+  CANCELED
+}
+
+model Tenant {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String
+  slug        String   @unique
+  plan        PlanTier @default(STARTER)
+  cnpj        String?
+  phone       String?
+  addressLine String?  @map("address_line")
+  logoUrl     String?  @map("logo_url")
+  closedAt    DateTime? @map("closed_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  users          User[]
+  products       Product[]
+  customers      Customer[]
+  suppliers      Supplier[]
+  stockMovements StockMovement[]
+  purchases      Purchase[]
+  purchaseItems  PurchaseItem[]
+  sales          Sale[]
+  saleItems      SaleItem[]
+  financeEntries FinanceEntry[]
+  cashRegisters  CashRegister[]
+  cashMovements  CashMovement[]
+  branches       Branch[]
+  productStocks  ProductStock[]
+  importBatches  ImportBatch[]
+  subscription   Subscription?
+  subscriptionEvents SubscriptionEvent[]
+  payments       Payment[]
+  notifications  Notification[]
+  notificationPreferences NotificationPreference[]
+  lgpdRequests   LgpdRequest[]
+  consentRecords ConsentRecord[]
+  auditLogs      AuditLog[]
+
+  @@map("tenants")
+}
+
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  email        String   @unique
+  name         String
+  passwordHash String   @map("password_hash")
+  role         UserRole @default(OWNER)
+  active       Boolean  @default(true)
+  tenantId     String?  @map("tenant_id") @db.Uuid
+  tenant       Tenant?  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branchId     String?  @map("branch_id") @db.Uuid
+  branch       Branch?  @relation(fields: [branchId], references: [id])
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@index([tenantId])
+  @@map("users")
+}
+
+model Product {
+  id           String        @id @default(uuid()) @db.Uuid
+  tenantId     String        @map("tenant_id") @db.Uuid
+  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  sku          String
+  barcode      String?
+  name         String
+  brand        String?
+  category     String?
+  unit         String        @default("un")
+  costPrice    Decimal       @default(0) @map("cost_price") @db.Decimal(12, 2)
+  salePrice    Decimal       @default(0) @map("sale_price") @db.Decimal(12, 2)
+  minStock     Decimal       @default(0) @map("min_stock") @db.Decimal(12, 3)
+  maxStock     Decimal       @default(0) @map("max_stock") @db.Decimal(12, 3)
+  currentStock Decimal       @default(0) @map("current_stock") @db.Decimal(12, 3)
+  status       ProductStatus @default(ACTIVE)
+  createdAt    DateTime      @default(now()) @map("created_at")
+  updatedAt    DateTime      @updatedAt @map("updated_at")
+  deletedAt    DateTime?     @map("deleted_at")
+
+  movements     StockMovement[]
+  purchaseItems PurchaseItem[]
+  saleItems     SaleItem[]
+  stocks        ProductStock[]
+
+  @@unique([tenantId, sku])
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@map("products")
+}
+
+model Customer {
+  id          String    @id @default(uuid()) @db.Uuid
+  tenantId    String    @map("tenant_id") @db.Uuid
+  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name        String
+  document    String?
+  email       String?
+  phone       String?
+  addressLine String?   @map("address_line")
+  notes       String?
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+
+  sales          Sale[]
+  financeEntries FinanceEntry[]
+
+  @@index([tenantId])
+  @@index([tenantId, name])
+  @@map("customers")
+}
+
+model Supplier {
+  id          String    @id @default(uuid()) @db.Uuid
+  tenantId    String    @map("tenant_id") @db.Uuid
+  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name        String
+  document    String?
+  email       String?
+  phone       String?
+  addressLine String?   @map("address_line")
+  notes       String?
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+
+  purchases      Purchase[]
+  financeEntries FinanceEntry[]
+
+  @@index([tenantId])
+  @@index([tenantId, name])
+  @@map("suppliers")
+}
+
+model StockMovement {
+  id        String            @id @default(uuid()) @db.Uuid
+  tenantId  String            @map("tenant_id") @db.Uuid
+  tenant    Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  productId String            @map("product_id") @db.Uuid
+  product   Product           @relation(fields: [productId], references: [id], onDelete: Cascade)
+  branchId  String            @map("branch_id") @db.Uuid
+  branch    Branch            @relation(fields: [branchId], references: [id])
+  type      StockMovementType
+  quantity  Decimal           @db.Decimal(12, 3)
+  balance   Decimal           @db.Decimal(12, 3)
+  reason    String?
+  userId    String?           @map("user_id") @db.Uuid
+  createdAt DateTime          @default(now()) @map("created_at")
+
+  @@index([tenantId, createdAt])
+  @@index([tenantId, productId])
+  @@map("stock_movements")
+}
+
+model Purchase {
+  id         String         @id @default(uuid()) @db.Uuid
+  tenantId   String         @map("tenant_id") @db.Uuid
+  tenant     Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  supplierId String?        @map("supplier_id") @db.Uuid
+  supplier   Supplier?      @relation(fields: [supplierId], references: [id])
+  branchId   String         @map("branch_id") @db.Uuid
+  branch     Branch         @relation(fields: [branchId], references: [id])
+  status     PurchaseStatus @default(COMPLETED)
+  freight    Decimal        @default(0) @db.Decimal(12, 2)
+  discount   Decimal        @default(0) @db.Decimal(12, 2)
+  total      Decimal        @default(0) @db.Decimal(12, 2)
+  dueDate    DateTime?      @map("due_date")
+  userId     String?        @map("user_id") @db.Uuid
+  createdAt  DateTime       @default(now()) @map("created_at")
+
+  items          PurchaseItem[]
+  financeEntries FinanceEntry[]
+
+  @@index([tenantId, createdAt])
+  @@map("purchases")
+}
+
+model PurchaseItem {
+  id         String   @id @default(uuid()) @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  purchaseId String   @map("purchase_id") @db.Uuid
+  purchase   Purchase @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  productId  String   @map("product_id") @db.Uuid
+  product    Product  @relation(fields: [productId], references: [id])
+  quantity   Decimal  @db.Decimal(12, 3)
+  unitCost   Decimal  @map("unit_cost") @db.Decimal(12, 2)
+  total      Decimal  @db.Decimal(12, 2)
+
+  @@index([tenantId, purchaseId])
+  @@map("purchase_items")
+}
+
+model Sale {
+  id            String        @id @default(uuid()) @db.Uuid
+  tenantId      String        @map("tenant_id") @db.Uuid
+  tenant        Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customerId    String?       @map("customer_id") @db.Uuid
+  customer      Customer?     @relation(fields: [customerId], references: [id])
+  branchId      String        @map("branch_id") @db.Uuid
+  branch        Branch        @relation(fields: [branchId], references: [id])
+  status        SaleStatus    @default(COMPLETED)
+  subtotal      Decimal       @default(0) @db.Decimal(12, 2)
+  discount      Decimal       @default(0) @db.Decimal(12, 2)
+  total         Decimal       @default(0) @db.Decimal(12, 2)
+  paymentMethod PaymentMethod @map("payment_method")
+  userId        String?       @map("user_id") @db.Uuid
+  createdAt     DateTime      @default(now()) @map("created_at")
+
+  items          SaleItem[]
+  financeEntries FinanceEntry[]
+
+  @@index([tenantId, createdAt])
+  @@map("sales")
+}
+
+model SaleItem {
+  id        String  @id @default(uuid()) @db.Uuid
+  tenantId  String  @map("tenant_id") @db.Uuid
+  tenant    Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  saleId    String  @map("sale_id") @db.Uuid
+  sale      Sale    @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  productId String  @map("product_id") @db.Uuid
+  product   Product @relation(fields: [productId], references: [id])
+  quantity  Decimal @db.Decimal(12, 3)
+  unitPrice Decimal @map("unit_price") @db.Decimal(12, 2)
+  total     Decimal @db.Decimal(12, 2)
+
+  @@index([tenantId, saleId])
+  @@map("sale_items")
+}
+
+model FinanceEntry {
+  id          String        @id @default(uuid()) @db.Uuid
+  tenantId    String        @map("tenant_id") @db.Uuid
+  tenant      Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  type        FinanceType
+  description String
+  amount      Decimal       @db.Decimal(12, 2)
+  dueDate     DateTime      @map("due_date")
+  status      FinanceStatus @default(OPEN)
+  paidAt      DateTime?     @map("paid_at")
+  customerId  String?       @map("customer_id") @db.Uuid
+  customer    Customer?     @relation(fields: [customerId], references: [id])
+  supplierId  String?       @map("supplier_id") @db.Uuid
+  supplier    Supplier?     @relation(fields: [supplierId], references: [id])
+  saleId      String?       @map("sale_id") @db.Uuid
+  sale        Sale?         @relation(fields: [saleId], references: [id])
+  purchaseId  String?       @map("purchase_id") @db.Uuid
+  purchase    Purchase?     @relation(fields: [purchaseId], references: [id])
+  userId      String?       @map("user_id") @db.Uuid
+  createdAt   DateTime      @default(now()) @map("created_at")
+
+  @@index([tenantId, type, status])
+  @@index([tenantId, dueDate])
+  @@map("finance_entries")
+}
+
+model AuditLog {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId    String?  @map("user_id") @db.Uuid
+  action    String
+  entity    String
+  entityId  String?  @map("entity_id")
+  metadata  Json?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([tenantId, createdAt])
+  @@map("audit_logs")
+}
+
+enum CashRegisterStatus {
+  OPEN
+  CLOSED
+}
+
+enum CashMovementType {
+  SALE       // venda em dinheiro (+)
+  SUPPLY     // suprimento / reforco (+)
+  WITHDRAWAL // sangria (-)
+}
+
+model CashRegister {
+  id             String             @id @default(uuid()) @db.Uuid
+  tenantId       String             @map("tenant_id") @db.Uuid
+  tenant         Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branchId       String             @map("branch_id") @db.Uuid
+  branch         Branch             @relation(fields: [branchId], references: [id])
+  status         CashRegisterStatus @default(OPEN)
+  openingBalance Decimal            @map("opening_balance") @db.Decimal(12, 2)
+  closingBalance Decimal?           @map("closing_balance") @db.Decimal(12, 2) // saldo esperado no fechamento
+  countedBalance Decimal?           @map("counted_balance") @db.Decimal(12, 2) // saldo conferido/contado
+  difference     Decimal?           @db.Decimal(12, 2)                          // contado - esperado
+  openedById     String?            @map("opened_by_id") @db.Uuid
+  closedById     String?            @map("closed_by_id") @db.Uuid
+  openedAt       DateTime           @default(now()) @map("opened_at")
+  closedAt       DateTime?          @map("closed_at")
+
+  movements CashMovement[]
+
+  @@index([tenantId, status])
+  @@map("cash_registers")
+}
+
+model CashMovement {
+  id          String           @id @default(uuid()) @db.Uuid
+  tenantId    String           @map("tenant_id") @db.Uuid
+  tenant      Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  registerId  String           @map("register_id") @db.Uuid
+  register    CashRegister     @relation(fields: [registerId], references: [id], onDelete: Cascade)
+  type        CashMovementType
+  amount      Decimal          @db.Decimal(12, 2)
+  description String?
+  saleId      String?          @map("sale_id") @db.Uuid // referencia suave (sem FK) a venda
+  userId      String?          @map("user_id") @db.Uuid
+  createdAt   DateTime         @default(now()) @map("created_at")
+
+  @@index([tenantId, registerId])
+  @@map("cash_movements")
+}
+
+model Branch {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name      String
+  isDefault Boolean  @default(false) @map("is_default")
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  users          User[]
+  productStocks  ProductStock[]
+  stockMovements StockMovement[]
+  purchases      Purchase[]
+  sales          Sale[]
+  cashRegisters  CashRegister[]
+
+  @@index([tenantId])
+  @@map("branches")
+}
+
+model ProductStock {
+  id        String  @id @default(uuid()) @db.Uuid
+  tenantId  String  @map("tenant_id") @db.Uuid
+  tenant    Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  productId String  @map("product_id") @db.Uuid
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  branchId  String  @map("branch_id") @db.Uuid
+  branch    Branch  @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  quantity  Decimal @default(0) @db.Decimal(12, 3)
+  minStock  Decimal @default(0) @map("min_stock") @db.Decimal(12, 3)
+  maxStock  Decimal @default(0) @map("max_stock") @db.Decimal(12, 3)
+
+  @@unique([productId, branchId])
+  @@index([tenantId, branchId])
+  @@map("product_stocks")
+}
+
+model ImportBatch {
+  id           String   @id @default(uuid()) @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  entity       String   // ex.: "product"
+  contentHash  String   @map("content_hash")
+  rowsImported Int      @map("rows_imported")
+  userId       String?  @map("user_id") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@unique([tenantId, contentHash]) // proteje contra reimportar o MESMO arquivo
+  @@index([tenantId, createdAt])
+  @@map("import_batches")
+}
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  SUSPENDED
+  CANCELED
+  EXPIRED
+}
+
+enum BillingInterval {
+  MONTHLY
+  ANNUAL
+}
+
+model Subscription {
+  id                 String             @id @default(uuid()) @db.Uuid
+  tenantId           String             @unique @map("tenant_id") @db.Uuid
+  tenant             Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  plan               PlanTier           @default(STARTER)
+  status             SubscriptionStatus @default(TRIALING)
+  interval           BillingInterval    @default(MONTHLY)
+  currentPeriodStart DateTime           @default(now()) @map("current_period_start")
+  currentPeriodEnd   DateTime           @map("current_period_end")
+  trialEndsAt        DateTime?          @map("trial_ends_at")
+  cancelAtPeriodEnd  Boolean            @default(false) @map("cancel_at_period_end")
+  canceledAt         DateTime?          @map("canceled_at")
+  // Referencia opaca ao provedor externo (ex.: id de assinatura no gateway).
+  providerRef        String?            @map("provider_ref")
+  createdAt          DateTime           @default(now()) @map("created_at")
+  updatedAt          DateTime           @updatedAt @map("updated_at")
+
+  @@map("subscriptions")
+}
+
+model SubscriptionEvent {
+  id         String   @id @default(uuid()) @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  type       String   // created | plan_changed | canceled | renewed | status_changed | trial_started
+  fromStatus String?  @map("from_status")
+  toStatus   String?  @map("to_status")
+  fromPlan   String?  @map("from_plan")
+  toPlan     String?  @map("to_plan")
+  metadata   Json?
+  userId     String?  @map("user_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([tenantId, createdAt])
+  @@map("subscription_events")
+}
+
+model PaymentEvent {
+  id          String    @id @default(uuid()) @db.Uuid
+  provider    String
+  eventId     String    @map("event_id")
+  tenantId    String?   @map("tenant_id") @db.Uuid
+  intent      String
+  providerRef String?   @map("provider_ref")
+  payload     Json?
+  processedAt DateTime? @map("processed_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@unique([provider, eventId]) // idempotencia: um evento processado uma unica vez
+  @@map("payment_events")
+}
+
+enum PaymentStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  REFUNDED
+}
+
+enum BillingMethod {
+  PIX
+  CARD
+}
+
+// Cobranca associada a um tenant e (quando recorrente) a assinatura.
+model Payment {
+  id                String         @id @default(uuid()) @db.Uuid
+  tenantId          String         @map("tenant_id") @db.Uuid
+  tenant            Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  subscriptionId    String?        @map("subscription_id") @db.Uuid
+  provider          String         // "mercadopago" etc.
+  providerRef       String?        @map("provider_ref")       // id do pagamento/preapproval no gateway
+  externalReference String?        @map("external_reference") // tenantId enviado ao gateway
+  method            BillingMethod?
+  amount            Decimal        @db.Decimal(12, 2)
+  status            PaymentStatus  @default(PENDING)
+  createdAt         DateTime       @default(now()) @map("created_at")
+  updatedAt         DateTime       @updatedAt @map("updated_at")
+
+  @@index([tenantId, createdAt])
+  @@index([provider, providerRef])
+  @@map("payments")
+}
+
+// Eventos de webhook recebidos do gateway. TABELA DE PLATAFORMA (fora do RLS):
+// o webhook chega sem contexto de tenant. A unicidade (provider, externalId)
+// garante idempotencia / protecao contra eventos duplicados.
+model WebhookEvent {
+  id          String    @id @default(uuid()) @db.Uuid
+  provider    String
+  externalId  String    @map("external_id")
+  type        String
+  tenantId    String?   @map("tenant_id") @db.Uuid
+  status      String    @default("RECEIVED") // RECEIVED | PROCESSED | FAILED | SKIPPED
+  error       String?
+  payload     Json
+  createdAt   DateTime  @default(now()) @map("created_at")
+  processedAt DateTime? @map("processed_at")
+
+  @@unique([provider, externalId])
+  @@index([provider, createdAt])
+  @@map("webhook_events")
+}
+
+// Lock de job (mutex com lease) — tabela de PLATAFORMA (fora do RLS).
+// Impede execucao concorrente do cron: quem consegue mover lockedUntil para o
+// futuro "ganha" a execucao; leases expiram para tolerar processos que morreram.
+model JobLock {
+  name        String   @id
+  lockedUntil DateTime @map("locked_until")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("job_locks")
+}
+
+// Auditoria de acoes do SUPER-ADMIN (plataforma). Tabela de plataforma (fora do
+// RLS de tenant). Nao contem dados operacionais dos tenants.
+model PlatformAuditLog {
+  id             String   @id @default(uuid()) @db.Uuid
+  actorUserId    String?  @map("actor_user_id") @db.Uuid
+  action         String
+  targetTenantId String?  @map("target_tenant_id") @db.Uuid
+  metadata       Json?
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@index([createdAt])
+  @@map("platform_audit_logs")
+}
+
+enum EmailStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+// Notificacao IN-APP, isolada por tenant. userId nulo = visivel a todos do tenant.
+
+// OUTBOX de e-mail. A operacao de negocio SO grava aqui (na sua transacao); o
+// envio externo acontece depois, no processador. dedupeKey unico por tenant =
+// idempotencia (impede enfileirar/enviar o mesmo e-mail duas vezes).
+
+// Notificacao in-app — isolada por tenant (RLS). userId nulo = para todo o tenant.
+model Notification {
+  id        String    @id @default(uuid()) @db.Uuid
+  tenantId  String    @map("tenant_id") @db.Uuid
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId    String?   @map("user_id") @db.Uuid
+  type      String
+  title     String
+  body      String
+  readAt    DateTime? @map("read_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  @@index([tenantId, createdAt])
+  @@map("notifications")
+}
+
+model NotificationPreference {
+  id            String   @id @default(uuid()) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId        String   @map("user_id") @db.Uuid
+  emailBilling  Boolean  @default(true) @map("email_billing")
+  emailLowStock Boolean  @default(true) @map("email_low_stock")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@unique([tenantId, userId])
+  @@map("notification_preferences")
+}
+
+// Fila/outbox de e-mails — TABELA DE PLATAFORMA (fora do RLS). Processada por um
+// worker (cron). idempotencyKey unico impede enfileirar o MESMO e-mail 2x.
+model EmailOutbox {
+  id             String    @id @default(uuid()) @db.Uuid
+  tenantId       String?   @map("tenant_id") @db.Uuid
+  toEmail        String    @map("to_email")
+  template       String
+  payload        Json
+  idempotencyKey String    @unique @map("idempotency_key")
+  status         String    @default("PENDING") // PENDING | PROCESSING | SENT | FAILED | DEAD
+  attempts       Int       @default(0)
+  maxAttempts    Int       @default(5) @map("max_attempts")
+  lastError      String?   @map("last_error")
+  nextAttemptAt  DateTime  @default(now()) @map("next_attempt_at")
+  sentAt         DateTime? @map("sent_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  @@index([status, nextAttemptAt])
+  @@map("email_outbox")
+}
+
+// Solicitacoes LGPD (exportacao/anonimizacao/exclusao) — trilha por tenant (RLS).
+model LgpdRequest {
+  id          String    @id @default(uuid()) @db.Uuid
+  tenantId    String    @map("tenant_id") @db.Uuid
+  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId      String?   @map("user_id") @db.Uuid
+  type        String    // EXPORT | ANONYMIZE | DELETE_ACCOUNT
+  status      String    @default("COMPLETED") // REQUESTED | COMPLETED | FAILED
+  createdAt   DateTime  @default(now()) @map("created_at")
+  completedAt DateTime? @map("completed_at")
+
+  @@index([tenantId, createdAt])
+  @@map("lgpd_requests")
+}
+
+// Registro de consentimento (quando juridicamente aplicavel) — por tenant (RLS).
+model ConsentRecord {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId    String?  @map("user_id") @db.Uuid
+  type      String   // ex.: terms | privacy | marketing
+  granted   Boolean
+  version   String
+  createdAt DateTime @default(now()) @map("created_at")
+}

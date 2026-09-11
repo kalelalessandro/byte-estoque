@@ -1,0 +1,42 @@
+name: CI
+on:
+  push: { branches: [main] }
+  pull_request:
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: npm }
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npx tsc --noEmit
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+        env:
+          AUTH_SECRET: ci-build-secret
+          DATABASE_URL: postgresql://user:pass@localhost:5432/db?schema=public
+
+  db-tests:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env: { POSTGRES_USER: byteforce, POSTGRES_PASSWORD: byteforce, POSTGRES_DB: byteforce }
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U byteforce" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://byteforce:byteforce@localhost:5432/byteforce?schema=public
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: npm }
+      - run: npm ci
+      - run: npx prisma migrate deploy || npx prisma db push --skip-generate
+      - run: npm run db:rls
+      - run: npm run verify:isolation
+      - run: npm run verify:concurrency
